@@ -116,7 +116,7 @@ function sendRoomList(ws) {
   ws.send(JSON.stringify({ type: "roomList", rooms: roomList }));
 }
 
-const PORT = 3000;
+const PORT = process.env.PORT || 4000;
 server.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
 });
