@@ -7,25 +7,18 @@ const server = http.createServer(app);
 
 const wss = new WebSocketServer({ server });
 const rooms = new Map();
-const roomOwners = new Map();
 
 wss.on("connection", (ws) => {
   ws.currentRoom = null;
-  ws.clientId = null;
 
   ws.on("message", (message) => {
     const data = JSON.parse(message);
-
+    
     switch (data.type) {
-      case "setClientId":
-        ws.clientId = data.clientId;
-        break;
-
       case "createRoom":
         const roomId = data.roomId;
         if (!rooms.has(roomId)) {
           rooms.set(roomId, []);
-          roomOwners.set(roomId, ws.clientId);
         }
         rooms.get(roomId).push(ws);
         ws.currentRoom = roomId;
@@ -39,7 +32,6 @@ wss.on("connection", (ws) => {
           rooms.get(joinRoomId).push(ws);
           ws.currentRoom = joinRoomId;
           ws.send(JSON.stringify({ type: "roomJoined", roomId: joinRoomId }));
-          notifyRoomParticipants(joinRoomId, `${ws.clientId} joined`);
         } else {
           ws.send(JSON.stringify({ type: "error", message: "Room does not exist" }));
         }
@@ -52,13 +44,10 @@ wss.on("connection", (ws) => {
 
       case "deleteRoom":
         const deleteRoomId = data.roomId;
-        if (roomOwners.get(deleteRoomId) === ws.clientId) {
+        if (rooms.has(deleteRoomId)) {
           rooms.delete(deleteRoomId);
-          roomOwners.delete(deleteRoomId);
-          notifyRoomParticipants(deleteRoomId, "Room has been deleted.");
+          notifyAllClients(`Room "${deleteRoomId}" has been deleted.`);
           ws.send(JSON.stringify({ type: "roomDeleted", roomId: deleteRoomId }));
-        } else {
-          ws.send(JSON.stringify({ type: "error", message: "Only the owner can delete this room." }));
         }
         break;
 
@@ -87,11 +76,19 @@ wss.on("connection", (ws) => {
 function notifyRoomParticipants(roomId, message, sender = null) {
   if (rooms.has(roomId)) {
     rooms.get(roomId).forEach((client) => {
-      if (client !== sender) {
-        client.send(JSON.stringify({ type: "message", message }));
+      if (client.readyState === 1) {
+        client.send(JSON.stringify({ type: "message", roomId, message }));
       }
     });
   }
+}
+
+function notifyAllClients(message) {
+  wss.clients.forEach((client) => {
+    if (client.readyState === 1) {
+      client.send(JSON.stringify({ type: "message", message }));
+    }
+  });
 }
 
 function leaveRoom(ws) {
@@ -110,13 +107,12 @@ function leaveRoom(ws) {
 function sendRoomList(ws) {
   const roomList = Array.from(rooms.entries()).map(([roomId, clients]) => ({
     roomId,
-    participants: clients.length,
-    isOwner: roomOwners.get(roomId) === ws.clientId,
+    participants: clients.length
   }));
   ws.send(JSON.stringify({ type: "roomList", rooms: roomList }));
 }
 
-const PORT = process.env.PORT || 4000;
+const PORT = 4000;
 server.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
+  console.log(`Server running at port ${PORT}`);
 });
