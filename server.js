@@ -9,7 +9,7 @@ const server = http.createServer(app);
 const wss = new WebSocketServer({ server });
 
 const rooms = new Map(); // Хранение комнат
-const roomMessages = new Map(); // Хранение истории сообщений
+const roomsMoveHistory = new Map(); // Хранение истории сообщений
 
 app.options("*", (req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -59,16 +59,15 @@ wss.on("connection", (ws) => {
       case "createRoom":
         if (!rooms.has(data.roomId)) {
           rooms.set(data.roomId, { clients: [] });
-          roomMessages.set(data.roomId, []); // Создаём комнату с пустой историей
+          roomsMoveHistory.set(data.roomId, {turn:'white', movesHistory:[]}); // Создаём комнату с пустой историей
         }
         rooms.get(data.roomId).clients.push(ws);
         ws.currentRoom = data.roomId;
 
         wsSend(ws, "roomCreated", {
           roomId: data.roomId,
-          messages: roomMessages.get(data.roomId) || [],
+          messages: roomsMoveHistory.get(data.roomId) || [],
         });
-
         console.log(`Room ${data.roomId} created`);
         break;
 
@@ -81,7 +80,7 @@ wss.on("connection", (ws) => {
 
         wsSend(ws, "roomJoined", {
           roomId: data.roomId,
-          messages: roomMessages.get(data.roomId) || [],
+          state: roomsMoveHistory.get(data.roomId) || [],
         });
 
         console.log(`Room ${data.roomId} joined`);
@@ -101,7 +100,7 @@ wss.on("connection", (ws) => {
         wsSend(ws, "roomDeleted", { roomId: data.roomId });
 
         rooms.delete(data.roomId);
-        roomMessages.delete(data.roomId);
+        roomsMoveHistory.delete(data.roomId);
         console.log(`Room ${data.roomId} deleted`);
         break;
 
@@ -110,17 +109,21 @@ wss.on("connection", (ws) => {
 
         const msg = {
           roomId: data.roomId,
-          message: data.message.toString(),
+          move: data.message.toString(),
           sender: data.sender,
         };
 
-        roomMessages.get(data.roomId).push(msg); // Сохраняем сообщение
+        roomsMoveHistory.get(data.roomId).movesHistory.push(msg);
+        roomsMoveHistory.get(data.roomId).turn = roomsMoveHistory.get(data.roomId).turn == 'white' ? 'black' : 'white'
         notifyRoomParticipants(data.roomId, msg.message, msg.sender);
         console.log(`Message "${msg.message}" sent`);
         break;
 
       case "getRooms":
         sendRoomList(ws);
+        break;
+      case "getRoomsObj":
+        sendRoomsObj(ws);
         break;
 
       default:
@@ -138,8 +141,13 @@ function notifyRoomParticipants(roomId, message, sender) {
     rooms.get(roomId).clients.forEach((client) => {
       if (client.readyState === 1) {
         wsSend(client, "message", { message, roomId, sender });
+        // wsSendMsg(client, { message, roomId, sender });
       }
     });
+
+    // rooms.get(roomId).clients.forEach((client) => {
+    //   client.readyState === 1 && wsSend(client, "message", { message, roomId, sender });
+    // });
   }
 }
 
@@ -162,8 +170,43 @@ function sendRoomList(ws) {
   wsSend(ws, "roomList", { rooms: roomList });
 }
 
+function sendRoomsObj(ws){
+  console.log(rooms);
+  
+  const roomsObj = deepClone(rooms)
+  wsSend(ws, "roomsObj", {roomsObj})
+}
+
 function wsSend(ws, typeString, dataObj = { text: "no data" }) {
   ws.send(JSON.stringify({ type: typeString, data: dataObj }));
+}
+
+function wsSendFactory(typeString) {
+  return function(ws, dataObj = { text: "no data" }) {
+    ws.send(JSON.stringify({ type: typeString, data: dataObj }));
+  }
+}
+
+function deepClone(obj) {
+  if (Array.isArray(obj)) {
+      const clonedArray = [];
+      for (let i = 0; i < obj.length; i++) {
+          clonedArray[i] = deepClone(obj[i]);
+      }
+      return clonedArray;
+  }
+  else if (typeof obj === 'object' && obj !== null) {
+      const clonedObject = {};
+      for (const key in obj) {
+          if (Object.hasOwnProperty.call(obj, key)) {
+              clonedObject[key] = deepClone(obj[key]);
+          }
+      }
+      return clonedObject;
+  }
+  else {
+      return obj;
+  }
 }
 
 function joinToRoom(roomId, ws) {
