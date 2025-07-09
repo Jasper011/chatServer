@@ -27,10 +27,11 @@ app.use(
   })
 );
 
-app.use(express.static(path.join(__dirname, "client"))); // Подключаем статику
+app.use(express.static(path.join(__dirname, "clientReact"))); // Подключаем статику
 
 app.get("/", (req, res) => {
-  res.sendFile(path.resolve("client/index.html"));
+  // res.sendFile(path.resolve("client/index.html"));
+  res.sendFile(path.resolve("clientReact/index.html"));
 });
 
 app.get("/check", (req, res) => {
